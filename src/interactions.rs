@@ -163,7 +163,7 @@ pub async fn construct_interactions(
 	application_id: &str,
 	guild_id: &str,
 	bot_token: &str,
-) {
+) -> Result<(), reqwest::Error> {
 	let endpoint = build_guild_endpoint(application_id, guild_id);
 	let client = reqwest::Client::new();
 
@@ -174,9 +174,9 @@ pub async fn construct_interactions(
 			.header("content-type", "application/json")
 			.body(serde_json::to_string(&command).unwrap())
 			.send()
-			.await
-			.unwrap();
+			.await?;
 	}
+	Ok(())
 }
 
 pub fn send_interaction_response(

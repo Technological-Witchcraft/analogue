@@ -3,6 +3,7 @@ use ::chrono::{DateTime, Datelike, NaiveDateTime, Utc};
 use ::reqwest::Client as HTTPClient;
 use ::serenity::{client::Context, model::id::RoleId};
 use serenity::builder::CreateEmbed;
+use std::error::Error;
 
 pub async fn advent_interaction(
 	_: &Context,

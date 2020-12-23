@@ -60,11 +60,12 @@ impl EventHandler for Analogue {
 						options: vec![],
 					},
 				],
-				"791006048823148554",
-				"791005585243242546",
+				&config.application_id(),
+				&config.guild_id(),
 				&config.token(),
 			)
-			.await;
+			.await
+			.unwrap();
 		}
 	}
 
@@ -113,8 +114,8 @@ impl EventHandler for Analogue {
 						.await
 						.unwrap();
 					}
-					_ => {}
-				}
+					_ => (),
+				};
 			}
 		}
 	}
@@ -123,6 +124,8 @@ impl EventHandler for Analogue {
 #[derive(Deserialize)]
 struct AnalogueConfig {
 	advent_session: String,
+	application_id: String,
+	guild_id: String,
 	roles: HashMap<String, usize>,
 	token: String,
 }
@@ -130,6 +133,14 @@ struct AnalogueConfig {
 impl AnalogueConfig {
 	fn advent_session(&self) -> String {
 		self.advent_session.clone()
+	}
+
+	fn application_id(&self) -> String {
+		self.application_id.clone()
+	}
+
+	fn guild_id(&self) -> String {
+		self.guild_id.clone()
 	}
 
 	fn role_allowed(&self, name: &String) -> bool {
