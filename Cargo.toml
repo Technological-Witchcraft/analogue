@@ -9,6 +9,7 @@ license = "0BSD"
 chrono = "0.4.19"
 reqwest = "0.10.9"
 serde = { version = "1.0.117", features = ["derive"] }
+serde_repr = "0.1.6"
 serenity = "0.9.2"
 serde_json = "1.0.60"
 tokio = { version = "0.2.23", features = ["macros", "rt-threaded"] }
