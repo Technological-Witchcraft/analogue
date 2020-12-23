@@ -11,12 +11,17 @@ use ::serenity::{
 		},
 		StandardFramework,
 	},
-	model::channel::{Channel, Message},
+	model::{
+		channel::{Channel, Message},
+		gateway::Ready,
+	},
 	Client,
 };
 use ::std::{collections::HashMap, error::Error, fs::File, io::Read, path::Path};
 
-mod advent;
+pub mod advent;
+mod interaction_commands;
+pub mod interactions;
 
 static mut ADVENT_OF_CODE: (String, usize) = (String::new(), 0);
 static mut CONFIG: Option<AnalogueConfig> = None;
@@ -24,11 +29,103 @@ static mut CONFIG: Option<AnalogueConfig> = None;
 struct Analogue;
 
 #[async_trait]
-impl EventHandler for Analogue {}
+impl EventHandler for Analogue {
+	async fn ready(&self, _: Context, _: Ready) {
+		if let Some(config) = unsafe { &CONFIG } {
+			let role_commands = vec![interactions::definition::CommandOption {
+				r#type: 8,
+				name: "role".to_string(),
+				description: "The role to add/remove".to_string(),
+				default: None,
+				required: true,
+				choices: None,
+				options: None,
+			}];
+
+			interactions::construct_interactions(
+				vec![
+					interactions::definition::Command {
+						name: "advent".to_string(),
+						description: "Shows the leaderboard for the Advent of Code".to_string(),
+						options: vec![],
+					},
+					interactions::definition::Command {
+						name: "role".to_string(),
+						description: "Used for self-assigning roles".to_string(),
+						options: role_commands,
+					},
+					interactions::definition::Command {
+						name: "roles".to_string(),
+						description: "Display a list of roles that can be assigned".to_string(),
+						options: vec![],
+					},
+				],
+				&config.application_id(),
+				&config.guild_id(),
+				&config.token(),
+			)
+			.await
+			.unwrap();
+		}
+	}
+
+	async fn unknown(&self, ctx: Context, name: String, raw: serde_json::Value) {
+		if name == "INTERACTION_CREATE" {
+			// Handle an interaction command.
+			if let Some(config) = unsafe { &CONFIG } {
+				println!("{:#?}", raw);
+				let interaction =
+					serde_json::from_str::<interactions::Interaction>(&raw.to_string()).unwrap();
+
+				match &interaction.data.name[..] {
+					"advent" => {
+						let response =
+							interaction_commands::advent_interaction(&ctx, &interaction).await;
+						interactions::send_interaction_response(
+							response,
+							&interaction.id,
+							&interaction.token,
+							&config.token(),
+						)
+						.await
+						.unwrap();
+					}
+					"role" => {
+						let response =
+							interaction_commands::role_interaction(&ctx, &interaction).await;
+						interactions::send_interaction_response(
+							response,
+							&interaction.id,
+							&interaction.token,
+							&config.token(),
+						)
+						.await
+						.unwrap();
+					}
+					"roles" => {
+						let response =
+							interaction_commands::roles_interaction(&ctx, &interaction).await;
+						interactions::send_interaction_response(
+							response,
+							&interaction.id,
+							&interaction.token,
+							&config.token(),
+						)
+						.await
+						.unwrap();
+					}
+					_ => (),
+				};
+			}
+		}
+	}
+}
 
 #[derive(Deserialize)]
 struct AnalogueConfig {
 	advent_session: String,
+	application_id: String,
+	guild_id: String,
 	roles: HashMap<String, usize>,
 	token: String,
 }
@@ -36,6 +133,14 @@ struct AnalogueConfig {
 impl AnalogueConfig {
 	fn advent_session(&self) -> String {
 		self.advent_session.clone()
+	}
+
+	fn application_id(&self) -> String {
+		self.application_id.clone()
+	}
+
+	fn guild_id(&self) -> String {
+		self.guild_id.clone()
 	}
 
 	fn role_allowed(&self, name: &String) -> bool {
@@ -52,8 +157,62 @@ impl AnalogueConfig {
 }
 
 #[group]
-#[commands(advent, help, role)]
+#[commands(help, advent, role)]
 struct Command;
+
+#[command]
+async fn help(ctx: &Context, msg: &Message) -> CommandResult {
+	if let Channel::Guild(channel) = msg.channel(ctx).await.unwrap() {
+		channel
+	    .send_message(ctx, |m| {
+		m.embed(|e| {
+		    e.color(0x722f37);
+		    e.description(
+			"
+					`advent` - Shows the leaderboard for the Advent of Code
+					`help` - Shows this lovely message
+					`role` - Used for self-assigning roles
+                                        
+                                        *Note: These commands are also available as /advent, /role, and /roles*
+				",
+		    );
+		    e.title("List of Commands");
+		    e
+		});
+		m
+	    })
+	    .await?;
+	}
+	Ok(())
+}
+
+#[::tokio::main]
+async fn main() {
+	unsafe {
+		CONFIG = Some(read_config("analogue.toml").await.unwrap());
+	}
+	let framework = StandardFramework::new()
+		.configure(|c| c.prefix("a?"))
+		.group(&COMMAND_GROUP);
+	if let Some(config) = unsafe { &CONFIG } {
+		let mut client = Client::builder(config.token())
+			.event_handler(Analogue)
+			.framework(framework)
+			.await
+			.unwrap();
+		if let Err(e) = client.start().await {
+			eprintln!("{}", e);
+		}
+	}
+}
+
+async fn read_config<P: AsRef<Path>>(path: P) -> Result<AnalogueConfig, Box<dyn Error>> {
+	let mut config_file = File::open(path)?;
+	let mut buffer = String::new();
+	config_file.read_to_string(&mut buffer)?;
+	let config = ::toml::from_str(&buffer)?;
+	Ok(config)
+}
 
 #[command]
 async fn advent(ctx: &Context, msg: &Message) -> CommandResult {
@@ -126,58 +285,6 @@ async fn advent(ctx: &Context, msg: &Message) -> CommandResult {
 		}
 	}
 	Ok(())
-}
-
-#[command]
-async fn help(ctx: &Context, msg: &Message) -> CommandResult {
-	if let Channel::Guild(channel) = msg.channel(ctx).await.unwrap() {
-		channel
-			.send_message(ctx, |m| {
-				m.embed(|e| {
-					e.color(0x722f37);
-					e.description(
-						"
-					`advent` - Shows the leaderboard for the Advent of Code
-					`help` - Shows this lovely message
-					`role` - Used for self-assigning roles
-				",
-					);
-					e.title("List of Commands");
-					e
-				});
-				m
-			})
-			.await?;
-	}
-	Ok(())
-}
-
-#[::tokio::main]
-async fn main() {
-	unsafe {
-		CONFIG = Some(read_config("analogue.toml").await.unwrap());
-	}
-	let framework = StandardFramework::new()
-		.configure(|c| c.prefix("a?"))
-		.group(&COMMAND_GROUP);
-	if let Some(config) = unsafe { &CONFIG } {
-		let mut client = Client::builder(config.token())
-			.event_handler(Analogue)
-			.framework(framework)
-			.await
-			.unwrap();
-		if let Err(e) = client.start().await {
-			eprintln!("{}", e);
-		}
-	}
-}
-
-async fn read_config<P: AsRef<Path>>(path: P) -> Result<AnalogueConfig, Box<dyn Error>> {
-	let mut config_file = File::open(path)?;
-	let mut buffer = String::new();
-	config_file.read_to_string(&mut buffer)?;
-	let config = ::toml::from_str(&buffer)?;
-	Ok(config)
 }
 
 #[command]
